@@ -13,7 +13,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 CITIES = ["karaganda", "astana"]
 PRICE_TO = 1_000_000
 DELAY = 1.5
-WORKERS = 4
+WORKERS = 1
 
 s = requests.Session()
 s.headers["User-Agent"] = UA

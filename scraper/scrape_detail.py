@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from scrape_list import DELAY, get
 
 OUT = "data/detail.json"
-WORKERS = 3
+WORKERS = 1
 
 
 def parse_detail(html):
