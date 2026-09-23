@@ -3,6 +3,7 @@ import json
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from bs4 import BeautifulSoup
@@ -12,6 +13,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 CITIES = ["karaganda", "astana"]
 PRICE_TO = 1_000_000
 DELAY = 1.5
+WORKERS = 4
 
 s = requests.Session()
 s.headers["User-Agent"] = UA
@@ -71,26 +73,27 @@ def parse_page(html, city):
     return items, max(pages or [1])
 
 
+def fetch_page(job):
+    city, page = job
+    base = f"https://kolesa.kz/cars/{city}/?price%5Bto%5D={PRICE_TO}"
+    html = get(base + (f"&page={page}" if page > 1 else ""))
+    time.sleep(DELAY)
+    return (city, page, *parse_page(html, city)) if html else (city, page, [], 0)
+
+
 def main():
     out = {}
-    for city in CITIES:
-        base = f"https://kolesa.kz/cars/{city}/?price%5Bto%5D={PRICE_TO}"
-        page, last = 1, 1
-        while page <= last:
-            html = get(base + (f"&page={page}" if page > 1 else ""))
-            if not html:
-                page += 1
-                continue
-            items, maxp = parse_page(html, city)
-            last = max(last, maxp)
-            for it in items:
-                out[it["id"]] = it
-            print(f"{city} p{page}/{last}: +{len(items)} (всего {len(out)})", file=sys.stderr)
-            page += 1
-            time.sleep(DELAY)
+    jobs = []
+    for city in CITIES:  # первая страница даёт число страниц, остальные качаем параллельно
+        _, _, items, last = fetch_page((city, 1))
+        out.update({it["id"]: it for it in items})
+        jobs += [(city, p) for p in range(2, last + 1)]
+    with ThreadPoolExecutor(WORKERS) as ex:
+        for city, page, items, _ in ex.map(fetch_page, jobs):
+            out.update({it["id"]: it for it in items})
+            print(f"{city} p{page}: +{len(items)} (всего {len(out)})", file=sys.stderr)
     json.dump(list(out.values()), open("data/list.json", "w"), ensure_ascii=False, indent=1)
     print("done", len(out), file=sys.stderr)
-
 
 if __name__ == "__main__":
     main()
