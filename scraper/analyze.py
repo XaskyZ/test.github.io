@@ -77,6 +77,13 @@ def market_medians(items):
     return med
 
 
+def disc_points(d):
+    """Скидка к рынку выгодна до ~30%; сильно дешевле рынка — обычно скрытые проблемы."""
+    if d <= 0.3:
+        return max(d, -0.3) * 60
+    return 18 - (d - 0.3) * 50
+
+
 def clean(text):
     return re.sub(NEGATED, " ", text or "", flags=re.I)
 
@@ -97,7 +104,7 @@ def stage1():
             continue
         # предварительный балл без деталей: своя медиана, год, пробег, марка
         m = med[it["id"]][0]
-        pre = (max(min(1 - it["price"] / m, 0.5), -0.3) * 60 if m else 0)
+        pre = disc_points(1 - it["price"] / m) if m else 0
         pre += ((it["year"] or 1995) - 2000) * 1.2 + BRAND_BONUS.get(it["brand"], 0)
         pre -= max((it["km"] or 250_000) - 150_000, 0) / 20_000
         cand.append((pre, it["id"]))
@@ -109,13 +116,17 @@ def stage1():
 
 def stage2():
     items = [base_fields(it) for it in json.load(open("data/list.json"))]
-    det = json.load(open("data/detail.json"))
+    try:
+        det = json.load(open("data/detail.json"))
+    except FileNotFoundError:  # карточки не скачались (блок kolesa) — работаем по выдаче
+        det = {}
+    empty = {"params": {}, "text": "", "avg_price": None, "options": [], "photos": {}}
     med = market_medians(items)
     out = []
     for it in items:
-        d = det.get(str(it["id"]))
-        if not d:
+        if hard_bad(it["desc"] + " " + it["title"]) or it["price"] < 150_000:
             continue
+        d = det.get(str(it["id"]), empty)
         p = d["params"]
         text = (d["text"] or "") + " " + it["desc"]
         it.update(text=d["text"], options=d["options"], params=p, avg_price=d["avg_price"])
@@ -127,17 +138,21 @@ def stage2():
         if p.get("Руль") == "Справа":
             it.setdefault("notes_auto", []).append("правый руль")
         m, n = med[it["id"]]
+        if not (d["avg_price"] or m):
+            continue  # не с чем сравнить цену
         ref = d["avg_price"] or m
         it["own_median"], it["peers"] = m, n
         it["discount"] = round(1 - it["price"] / ref, 3) if ref else None
         # --- балл ---
         sc, why = 0.0, []
         if it["discount"] is not None:
-            sc += max(min(it["discount"], 0.5), -0.3) * 60
-            why.append(f"цена {it['discount']*100:+.0f}% к рынку")
+            sc += disc_points(it["discount"])
+            why.append(f"цена {-it['discount']*100:+.0f}% к рынку")
         if it["year"]:
             sc += (it["year"] - 2000) * 1.2
-        if it["km"]:
+        if not it["km"]:
+            sc -= 2  # пробег не указан
+        else:
             sc -= max(it["km"] - 150_000, 0) / 20_000
             if it["km"] < 30_000 and it["year"] and it["year"] < 2012:
                 sc -= 4
@@ -149,7 +164,7 @@ def stage2():
                 w = w * BAD_MULT if w < 0 else w
                 sc += w
                 why.append(("+" if w > 0 else "") + f"{w} «{pat.split('|')[0]}»")
-        sc += min(len(it["photos"]), 12) * 0.5
+        sc += min(len(it["photos"]) or it["photo_count"] or 0, 12) * 0.5
         if it["gearbox"] == "автомат":
             sc += 2
         it["flags"], it["score"], it["why"] = flags, round(sc, 1), why
