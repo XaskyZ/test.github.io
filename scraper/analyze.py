@@ -10,6 +10,8 @@ import sys
 from collections import defaultdict
 
 LIMIT = 700  # сколько лучших по предварительному баллу дособирать
+# Покупатель не механик: всё, что намекает на ремонт/вложения, штрафуем сильнее.
+BAD_MULT = 1.5
 
 # Надёжные/ликвидные марки получают бонус, «вечно ломающиеся» и ВАЗ-классика — штраф.
 BRAND_BONUS = {
@@ -144,6 +146,7 @@ def stage2():
         ct = clean(text)
         for pat, w in {**SOFT_BAD, **GOOD}.items():
             if re.search(pat, text if w > 0 else ct, re.I):
+                w = w * BAD_MULT if w < 0 else w
                 sc += w
                 why.append(("+" if w > 0 else "") + f"{w} «{pat.split('|')[0]}»")
         sc += min(len(it["photos"]), 12) * 0.5
